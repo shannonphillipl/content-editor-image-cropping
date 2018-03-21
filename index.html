@@ -7,7 +7,7 @@
 		<title>reveal.js</title>
 
 		<link rel="stylesheet" href="css/reveal.css">
-		<link rel="stylesheet" href="css/theme/black.css">
+		<link rel="stylesheet" href="css/theme/league.css">
 
 		<!-- Theme used for syntax highlighting of code -->
 		<link rel="stylesheet" href="lib/css/zenburn.css">
@@ -24,8 +24,91 @@
 	<body>
 		<div class="reveal">
 			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
+				<section>
+					<h2>Content Editor Image Cropping</h2>
+					A look at how Hopper is chopping up images in DM's newest CMS.
+				</section>
+				<section><h3>Backend Logic</h3></section>
+				<section>
+					<ol>
+						<li>Multipart form received in request</li>
+							<ul>
+								<li>Includes two things: image file and object with metadata</li>
+							</ul>
+						<li>Image file is uploaded to S3</li>
+						<li>Metadata is used by controller to upload cropped images to S3</li>
+					</ol>
+				</section>
+				<section>
+					Middleware (multer/multerS3) is used to grab image file and upload it
+					<pre>
+						<code data-trim data-noescape>
+						  const uploadFromMultipartForm = multer({
+							storage: multerS3({
+							  s3: awsS3,
+							  bucket: ASSETS_BUCKET,
+							  metadata(req, file, cb) {
+							  	cb(null, { fieldName: file.fieldname });
+							  },
+							  key(req, file, cb) {
+								extension = file.originalname.substr(file.originalname.lastIndexOf('.') + 1);
+								const filename = `original_${uuId()}.${extension}`;
+								cb(null, filename);
+							  },
+							}),
+						  });
+						</code>
+					</pre>
+				</section>
+				<section>
+					Controller parses image cropping data and creates/uploads crops
+					<pre>
+						<code data-trim data-noescape>
+							// validation/ctx parsing code here
+							await Promise.all(cropsArray.map(async (crop) => {
+								if (crop.dirty || typeof crop.dirty === 'undefined') {
+									const s3Key = 'originalCropFilenameOnS3'
+									const x = parseInt(crop.x, 10);
+									const y = parseInt(crop.y, 10);
+									const width = parseInt(crop.width, 10);
+									const height = parseInt(crop.height, 10);
+						
+									const jimpImage = await jimp.read(originalFile);
+									await jimpImage.crop(x, y, width, height);
+									jimpImage.getBuffer(jimpImage.getMIME(), (err, binaryFile) => {
+										if (err) { throw new Error(err.message); }
+										uploadS3Object(binaryFile, ASSETS_BUCKET, s3Key);
+							})}}));
+						</code>
+					</pre>
+				</section>
+				<section>
+					Zooming in on cropping logic
+					<pre>
+						<code data-trim data-noescape>
+							const jimpImage = await jimp.read(originalFile);
+							await jimpImage.crop(x, y, width, height);
+							jimpImage.getBuffer(jimpImage.getMIME(), (err, binaryFile) => {
+								if (err) { throw new Error(err.message); }
+								uploadS3Object(binaryFile, ASSETS_BUCKET, s3Key);
+						</code>
+					</pre>
+					<ul>
+						<li>
+							Jimp reads the original S3 file, then modifies it based on the crop data passed into the controller
+						</li>
+						<li>
+							Jimp takes a binary version of the file and uploads it to the s3 using the Amazon SDK
+						</li>
+						<li>
+							Note that this is NOT multerS3, the middleware we used for uploading the original crop to the S3 
+						</li>
+					</ul>
+				</section>
+				<section>
+					The response returns the crop filenames, among other data, to the frontend.
+
+				</section>
 			</div>
 		</div>
 
